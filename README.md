@@ -47,11 +47,6 @@ wallet address directly — it is transparent and auditable by design, but it is
 - "How Blockchain Works" interactive page with a live hash demo
 - Fully responsive, with reduced-motion support and semantic markup
 
-## 3. Screenshots
-
-_Add screenshots here before submission (landing page, voting flow, explorer, audit
-page, admin dashboard)._
-
 ## 4. Architecture
 
 ```

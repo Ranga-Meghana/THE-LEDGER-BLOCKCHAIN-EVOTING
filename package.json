@@ -1,0 +1,18 @@
+{
+  "name": "the-ledger-blockchain-evoting",
+  "version": "1.0.0",
+  "private": true,
+  "description": "THE LEDGER — Blockchain-Based E-Voting System (B.Tech capstone prototype)",
+  "scripts": {
+    "install:all": "npm install --prefix frontend && npm install --prefix backend && npm install --prefix blockchain",
+    "frontend:dev": "npm run dev --prefix frontend",
+    "frontend:build": "npm run build --prefix frontend",
+    "backend:dev": "npm run dev --prefix backend",
+    "backend:start": "npm start --prefix backend",
+    "backend:seed": "npm run seed --prefix backend",
+    "blockchain:node": "npm run node --prefix blockchain",
+    "blockchain:compile": "npm run compile --prefix blockchain",
+    "blockchain:test": "npm test --prefix blockchain",
+    "blockchain:deploy:local": "npm run deploy:local --prefix blockchain"
+  }
+}

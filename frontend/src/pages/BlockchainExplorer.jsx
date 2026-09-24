@@ -28,6 +28,9 @@ export default function BlockchainExplorer() {
       </Link>
       <div className="eyebrow">Blockchain Explorer</div>
       <h2 style={{ fontSize: 44 }}>The Ledger.</h2>
+      <div className="info-card" style={{ marginTop: 16, borderColor: "rgba(168, 85, 247, 0.5)" }}>
+        Demo Mode educational visualization only — these block records are simulated locally and are not actual Sepolia blocks.
+      </div>
 
       <div className="chain-stats" style={{ marginTop: 40 }}>
         <div className="cs">

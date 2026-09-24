@@ -33,7 +33,7 @@ export default function Footer() {
             <h4>Technology</h4>
             <Link to="/how-it-works">How Blockchain Works</Link>
             <Link to="/admin">Admin Dashboard</Link>
-            <a href="javascript:void(0)" onClick={() => pushToast("GitHub link disabled in this demo build.")}>
+            <a href="https://github.com" target="_blank" rel="noreferrer" onClick={() => pushToast("GitHub link disabled in this demo build.")}>
               GitHub
             </a>
           </div>

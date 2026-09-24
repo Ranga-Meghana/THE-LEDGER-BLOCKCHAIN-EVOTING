@@ -1,14 +1,125 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import TransactionCard from "../components/TransactionCard.jsx";
 import { useVoting } from "../context/VotingContext.jsx";
 
 export default function Confirmation() {
   const navigate = useNavigate();
-  const { lastTx, hasVoted } = useVoting();
+  const {
+    lastTx,
+    hasVoted,
+    wallet,
+    walletMode,
+    recoverRealVoteTx,
+    realWalletRecoveryState,
+    realWalletError,
+  } = useVoting();
+  const [recovering, setRecovering] = useState(false);
 
-  // Guard: nothing to confirm if no vote has been cast in this session.
+  console.log("[confirmation-guard]", {
+    wallet,
+    walletMode,
+    hasVoted,
+    lastTx,
+    realWalletRecoveryState,
+    realWalletError,
+    hasMetaMask: !!window.ethereum,
+    chainId: window.ethereum?.chainId,
+    selectedAccount: window.ethereum?.selectedAddress,
+  });
+
+  useEffect(() => {
+    let active = true;
+
+    if (!wallet || walletMode !== "real" || lastTx) {
+      return undefined;
+    }
+
+    if (realWalletRecoveryState === "checking" || realWalletRecoveryState === "idle") {
+      return undefined;
+    }
+
+    async function recover() {
+      setRecovering(true);
+      try {
+        await recoverRealVoteTx();
+      } finally {
+        if (active) {
+          setRecovering(false);
+        }
+      }
+    }
+
+    recover();
+
+    return () => {
+      active = false;
+    };
+  }, [wallet, walletMode, lastTx, realWalletRecoveryState, recoverRealVoteTx]);
+
+  if (walletMode === "real" && !lastTx) {
+    if (realWalletRecoveryState === "checking" || realWalletRecoveryState === "idle") {
+      return (
+        <div className="wrap screen-shell">
+          <div className="confirm-wrap">
+            <div className="eyebrow" style={{ justifyContent: "center" }}>
+              Verifying blockchain vote…
+            </div>
+            <h2 style={{ fontSize: 28 }}>Checking the Sepolia contract for your existing vote.</h2>
+          </div>
+        </div>
+      );
+    }
+
+    if (realWalletRecoveryState === "failed") {
+      return (
+        <div className="wrap screen-shell">
+          <div className="confirm-wrap">
+            <div className="eyebrow" style={{ justifyContent: "center" }}>Real vote recovery error</div>
+            <h2 style={{ fontSize: 28 }}>We could not verify the existing on-chain vote.</h2>
+            <p style={{ color: "var(--ink-dim)", marginTop: 10 }}>{realWalletError || "The blockchain read did not return a transaction."}</p>
+            <button className="btn btn-primary" onClick={() => recoverRealVoteTx()} style={{ marginTop: 16 }}>
+              Retry recovery
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (hasVoted === false) {
+      return <Navigate to="/vote" replace />;
+    }
+  }
+
   if (!hasVoted || !lastTx) {
+    if (walletMode === "real" && (realWalletRecoveryState === "checking" || realWalletRecoveryState === "idle")) {
+      return (
+        <div className="wrap screen-shell">
+          <div className="confirm-wrap">
+            <div className="eyebrow" style={{ justifyContent: "center" }}>
+              Verifying blockchain vote…
+            </div>
+            <h2 style={{ fontSize: 28 }}>Checking the Sepolia contract for your existing vote.</h2>
+          </div>
+        </div>
+      );
+    }
+
+    if (walletMode === "real" && realWalletRecoveryState === "failed") {
+      return (
+        <div className="wrap screen-shell">
+          <div className="confirm-wrap">
+            <div className="eyebrow" style={{ justifyContent: "center" }}>Real vote recovery error</div>
+            <h2 style={{ fontSize: 28 }}>We could not verify the existing on-chain vote.</h2>
+            <p style={{ color: "var(--ink-dim)", marginTop: 10 }}>{realWalletError || "The blockchain read did not return a transaction."}</p>
+            <button className="btn btn-primary" onClick={() => recoverRealVoteTx()} style={{ marginTop: 16 }}>
+              Retry recovery
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return <Navigate to="/vote" replace />;
   }
 

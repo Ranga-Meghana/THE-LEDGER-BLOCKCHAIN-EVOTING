@@ -69,6 +69,9 @@ export default function Audit() {
       <p className="center" style={{ color: "var(--ink-dim)", maxWidth: 480, margin: "14px auto 0" }}>
         Recompute every block's hash independently and confirm nothing has quietly changed.
       </p>
+      <div className="info-card center" style={{ margin: "18px auto 0", maxWidth: 620 }}>
+        Demo Mode integrity check only — this review is for the educational simulated chain and does not read real Sepolia blocks.
+      </div>
 
       <div className="audit-panel" style={{ marginTop: 48 }}>
         <div>

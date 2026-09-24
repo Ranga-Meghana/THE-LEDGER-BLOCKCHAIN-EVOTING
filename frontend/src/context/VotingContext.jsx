@@ -14,15 +14,20 @@ import {
 
 import {
   connectWallet as connectWalletService,
+  getConnectedWalletInfo,
 } from "../blockchain/walletService.js";
 
 import {
   realCastVote,
   realGetResults,
   realGetLastVote,
+  realHasVoted,
 } from "../blockchain/contractService.js";
 
-import { REAL_MODE_AVAILABLE } from "../blockchain/config.js";
+import {
+  REAL_MODE_AVAILABLE,
+  getRealModeDiagnostic,
+} from "../blockchain/config.js";
 import { CANDIDATES } from "../data/candidates.js";
 import { ELECTION } from "../data/electionData.js";
 
@@ -69,21 +74,152 @@ export function VotingProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
   const [realResults, setRealResults] = useState(null);
+  const [realWalletRecoveryState, setRealWalletRecoveryState] = useState("idle");
+  const [realWalletError, setRealWalletError] = useState("");
+
+  const syncConnectedRealWallet = useCallback(async () => {
+    if (typeof window === "undefined" || !window.ethereum) {
+      setWallet(null);
+      setWalletMode(null);
+      setRealWalletRecoveryState("idle");
+      setRealWalletError("");
+      return false;
+    }
+
+    try {
+      const info = await getConnectedWalletInfo();
+
+      if (!info.available || !info.account) {
+        if (!wallet) {
+          setWallet(null);
+          setWalletMode(null);
+        }
+        setRealWalletRecoveryState("idle");
+        setRealWalletError("");
+        return false;
+      }
+
+      setWallet(info.account);
+      setWalletMode("real");
+      setRealWalletRecoveryState("checking");
+      setRealWalletError("");
+      safeSet(STORAGE_KEYS.wallet, info.account);
+      safeSet(STORAGE_KEYS.walletMode, "real");
+      return true;
+    } catch (err) {
+      // Keep the currently known wallet account intact while the provider is
+      // temporarily unavailable or while the wallet is still loading. If the
+      // provider fails, the app should retry recovery instead of silently
+      // clearing the wallet and redirecting to /vote.
+      setRealWalletRecoveryState("failed");
+      setRealWalletError(
+        err?.message || "MetaMask is not connected to the correct network."
+      );
+      return false;
+    }
+  }, [wallet]);
+
+  const recoverRealVoteTx = useCallback(async () => {
+    if (!REAL_MODE_AVAILABLE || !wallet || walletMode !== "real") {
+      setRealWalletRecoveryState("idle");
+      return null;
+    }
+
+    setRealWalletRecoveryState("checking");
+    setRealWalletError("");
+
+    try {
+      const votedOnChain = await realHasVoted(ELECTION.onChainId, wallet);
+
+      if (!votedOnChain) {
+        setHasVoted(false);
+        setLastTx(null);
+        setVotedFor(null);
+        setRealWalletRecoveryState("noVote");
+        safeSet(STORAGE_KEYS.hasVoted, "0");
+        safeSet(STORAGE_KEYS.lastTx, JSON.stringify(null));
+        safeSet(STORAGE_KEYS.votedFor, "");
+        return null;
+      }
+
+      const recoveredTx = await realGetLastVote(ELECTION.onChainId, wallet);
+
+      if (!recoveredTx) {
+        // The wallet is already known to have voted on-chain. Preserve that
+        // truth and show a recovery error instead of silently clearing state and
+        // redirecting the user away from the confirmation flow.
+        setHasVoted(true);
+        setRealWalletRecoveryState("failed");
+        setRealWalletError("The existing real vote was found on-chain, but the transaction details could not be recovered yet.");
+        return null;
+      }
+
+      const candidateMatch = CANDIDATES.find(
+        (candidate) => candidate.onChainId === Number(recoveredTx.candidateId)
+      );
+      const resolvedVotedFor = candidateMatch
+        ? candidateMatch.id
+        : String(recoveredTx.candidateId ?? "real-wallet-vote");
+
+      setLastTx(recoveredTx);
+      setHasVoted(true);
+      setVotedFor(resolvedVotedFor);
+      setRealWalletRecoveryState("recovered");
+
+      safeSet(STORAGE_KEYS.lastTx, JSON.stringify(recoveredTx));
+      safeSet(STORAGE_KEYS.hasVoted, "1");
+      safeSet(STORAGE_KEYS.votedFor, resolvedVotedFor);
+      safeSet(STORAGE_KEYS.wallet, wallet);
+      safeSet(STORAGE_KEYS.walletMode, "real");
+
+      return recoveredTx;
+    } catch (err) {
+      setRealWalletRecoveryState("failed");
+      setRealWalletError(
+        err?.message || "Could not recover the existing real vote."
+      );
+      console.warn(
+        "Could not recover previous blockchain transaction:",
+        err?.message || err
+      );
+      return null;
+    }
+  }, [wallet, walletMode]);
+
+  // -------------------------------------------------------------------------
+  // Toast notifications
+  // -------------------------------------------------------------------------
+  const pushToast = useCallback((message) => {
+    const id = Math.random().toString(36).slice(2);
+
+    setToasts((t) => [...t, { id, message }]);
+
+    setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id));
+    }, 3400);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Restore saved frontend state when the application loads.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    setHasVoted(safeGet(STORAGE_KEYS.hasVoted) === "1");
-    setVotedFor(safeGet(STORAGE_KEYS.votedFor));
-
+    const savedHasVoted = safeGet(STORAGE_KEYS.hasVoted) === "1";
+    const savedVotedFor = safeGet(STORAGE_KEYS.votedFor);
     const savedWallet = safeGet(STORAGE_KEYS.wallet);
     const savedWalletMode = safeGet(STORAGE_KEYS.walletMode);
 
+    // LocalStorage is a convenience cache only. It must not override the live
+    // MetaMask account or the real blockchain state.
+    setHasVoted(savedHasVoted);
+    setVotedFor(savedVotedFor);
     setWallet(savedWallet);
     setWalletMode(savedWalletMode);
 
-    // Restore the last transaction if it was previously saved.
+    const realDiagnostic = savedWalletMode === "real" ? getRealModeDiagnostic() : "";
+    if (realDiagnostic) {
+      pushToast(realDiagnostic);
+    }
+
     const savedTx = safeGet(STORAGE_KEYS.lastTx);
 
     if (savedTx) {
@@ -101,27 +237,13 @@ export function VotingProvider({ children }) {
       }
     }
 
-    // Demo Mode's simulated hash chain — always built, since the Blockchain
-    // Explorer / Audit pages are an educational Demo Mode feature regardless
-    // of whether the connected wallet is real or simulated.
+    syncConnectedRealWallet();
+
     seedChain().then((c) => {
       setChain(c);
       setLoadingChain(false);
     });
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Toast notifications
-  // -------------------------------------------------------------------------
-  const pushToast = useCallback((message) => {
-    const id = Math.random().toString(36).slice(2);
-
-    setToasts((t) => [...t, { id, message }]);
-
-    setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, 3400);
-  }, []);
+  }, [pushToast, syncConnectedRealWallet]);
 
   // -------------------------------------------------------------------------
   // Reads real, on-chain results.
@@ -152,48 +274,41 @@ export function VotingProvider({ children }) {
   // React state is reset. The transaction itself remains safely on Sepolia.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (
-      !REAL_MODE_AVAILABLE ||
-      !wallet ||
-      walletMode !== "real"
-    ) {
+    if (!wallet || walletMode !== "real") {
+      console.log("[real-wallet] no active real wallet yet", { wallet, walletMode, realWalletRecoveryState });
+      setRealWalletRecoveryState("idle");
+      setRealWalletError("");
+      return;
+    }
+
+    if (!REAL_MODE_AVAILABLE) {
+      setRealWalletRecoveryState("failed");
+      setRealWalletError("Real Blockchain Mode is unavailable because the wallet or contract config is invalid.");
       return;
     }
 
     let cancelled = false;
 
     async function recoverRealTransaction() {
-      try {
-        const recoveredTx = await realGetLastVote(
-          ELECTION.onChainId,
-          wallet
-        );
-
-        if (!cancelled && recoveredTx) {
-          setLastTx(recoveredTx);
-
-          safeSet(
-            STORAGE_KEYS.lastTx,
-            JSON.stringify(recoveredTx)
-          );
-
-          setHasVoted(true);
-          safeSet(STORAGE_KEYS.hasVoted, "1");
-        }
-      } catch (err) {
-        console.warn(
-          "Could not recover previous blockchain transaction:",
-          err.message
-        );
-      }
+      if (cancelled) return;
+      console.log("[real-wallet] recovery triggered", {
+        wallet,
+        walletMode,
+        realWalletRecoveryState,
+        hasMetaMask: !!window.ethereum,
+        chainId: window.ethereum?.chainId,
+        account: window.ethereum?.selectedAddress,
+      });
+      await recoverRealVoteTx();
     }
 
     recoverRealTransaction();
 
     return () => {
       cancelled = true;
+      console.log("[real-wallet] recovery cleanup");
     };
-  }, [wallet, walletMode]);
+  }, [recoverRealVoteTx, wallet, walletMode]);
 
   // -------------------------------------------------------------------------
   // Connect wallet
@@ -203,6 +318,8 @@ export function VotingProvider({ children }) {
 
     setWallet(address);
     setWalletMode(mode);
+    setRealWalletRecoveryState(mode === "real" ? "checking" : "idle");
+    setRealWalletError("");
 
     safeSet(STORAGE_KEYS.wallet, address);
     safeSet(STORAGE_KEYS.walletMode, mode);
@@ -374,6 +491,9 @@ export function VotingProvider({ children }) {
 
     realResults,
     refreshRealResults,
+    recoverRealVoteTx,
+    realWalletRecoveryState,
+    realWalletError,
 
     toasts,
     pushToast,

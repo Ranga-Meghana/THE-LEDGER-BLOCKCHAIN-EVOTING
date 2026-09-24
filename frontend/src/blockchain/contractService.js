@@ -177,35 +177,79 @@ export async function realHasVoted(electionId, address) {
  * the deployed contract's VoteCast events and recovers the actual transaction
  * hash, block number, and timestamp from Sepolia.
  */
-export async function realGetLastVote(electionId, voterAddress) {
-  const contract = getReadContract();
+async function queryVoteEventsWithRetry(contract, filter, fromBlock, toBlock, retries = 3) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await contract.queryFilter(filter, fromBlock, toBlock);
+    } catch (err) {
+      const message = String(err?.message || err || "");
+      const rateLimited = /429|compute units|capacity|rate limit|too many requests|exceeded/i.test(message);
 
-  const filter = contract.filters.VoteCast(
-    electionId,
-    null,
-    voterAddress
-  );
+      if (!rateLimited || attempt === retries) {
+        throw err;
+      }
 
-  const events = await contract.queryFilter(filter);
-
-  if (!events.length) {
-    return null;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
   }
 
-  // The latest VoteCast event is the most recent vote by this wallet.
-  const event = events[events.length - 1];
+  return [];
+}
 
+export async function realGetLastVote(electionId, voterAddress, maxLookbackBlocks = 100000) {
+  const contract = getReadContract();
   const provider = getReadProvider();
-  const block = await provider.getBlock(event.blockNumber);
+  const latestBlockNumber = await provider.getBlockNumber();
+  const earliestBlockNumber = Math.max(0, latestBlockNumber - maxLookbackBlocks);
+  const maxQueryWindow = 10;
+  let windowEnd = latestBlockNumber;
 
-  return {
-    txId: event.transactionHash,
-    blockIndex: event.blockNumber,
-    timestamp: block
-      ? new Date(block.timestamp * 1000)
-      : new Date(),
-    mode: "real",
-  };
+  while (windowEnd >= earliestBlockNumber) {
+    const windowStart = Math.max(earliestBlockNumber, windowEnd - maxQueryWindow + 1);
+
+    // Match the actual contract event signature exactly:
+    // VoteCast(uint256 indexed electionId, uint256 indexed candidateId, address indexed voter, uint256 timestamp)
+    // The safest read-only pattern is to query all VoteCast events for this election, then
+    // filter the third argument (voter) in JavaScript. This avoids relying on null placeholders
+    // in the filter being interpreted the way the code expects across providers/ABI versions.
+    const filter = contract.filters.VoteCast(electionId);
+    const events = await queryVoteEventsWithRetry(
+      contract,
+      filter,
+      windowStart,
+      windowEnd
+    );
+
+    const matchingEvents = events.filter((event) => {
+      const voter = event.args?.[2];
+      return Boolean(voter) && voter.toLowerCase() === voterAddress.toLowerCase();
+    });
+
+    if (matchingEvents.length) {
+      const event = matchingEvents[matchingEvents.length - 1];
+      const block = await provider.getBlock(event.blockNumber);
+
+      const candidateId = Number(event.args?.[1]);
+
+      return {
+        txId: event.transactionHash,
+        blockIndex: Number(event.blockNumber),
+        timestamp: block
+          ? new Date(block.timestamp * 1000)
+          : new Date(),
+        mode: "real",
+        candidateId: Number.isFinite(candidateId) ? candidateId : null,
+      };
+    }
+
+    if (windowStart === earliestBlockNumber) {
+      break;
+    }
+
+    windowEnd = windowStart - 1;
+  }
+
+  return null;
 }
 
 function extractRevertReason(err) {

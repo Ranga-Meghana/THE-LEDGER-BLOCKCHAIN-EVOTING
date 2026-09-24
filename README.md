@@ -8,7 +8,7 @@
 
 | Resource | Link |
 |---|---|
-| 🌐 **Live Demo** | https://the-ledger-j996i03u-ranga-meghanas-projects.vercel.app |
+| 🌐 **Live Demo** | https://the-ledger-hazel-eta.vercel.app?utm_source=chatgpt.com |
 | 💻 **GitHub Repository** | https://github.com/Ranga-Meghana/THE-LEDGER-BLOCKCHAIN-EVOTING |
 | 🎨 **Frontend Source** | https://github.com/Ranga-Meghana/THE-LEDGER-BLOCKCHAIN-EVOTING/tree/main/frontend |
 | ⚙️ **Backend Source** | https://github.com/Ranga-Meghana/THE-LEDGER-BLOCKCHAIN-EVOTING/tree/main/backend |

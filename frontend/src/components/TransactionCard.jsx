@@ -5,7 +5,7 @@ import { formatTimestamp } from "../utils/format.js";
 // `mode` is 'real' (an actual mined transaction) or 'demo' (Demo Mode simulation)
 // so the network label never overstates what actually happened.
 export default function TransactionCard({ txId, blockIndex, timestamp, mode = "demo" }) {
-  const networkLabel = mode === "real" ? "Local Ethereum Testnet (Real Transaction)" : "Local Ethereum Testnet (Demo Mode simulation)";
+  const networkLabel = mode === "real" ? "Sepolia Testnet (Real Transaction)" : "Local Ethereum Testnet (Demo Mode simulation)";
   return (
     <div className="tx-card">
       <div className="kv">
@@ -31,3 +31,4 @@ export default function TransactionCard({ txId, blockIndex, timestamp, mode = "d
     </div>
   );
 }
+

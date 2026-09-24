@@ -12,10 +12,15 @@ import ABI from "./VotingABI.json";
 
 function assertConfigured() {
   if (!CONTRACT_ADDRESS) {
-    throw new Error("No contract address configured (VITE_CONTRACT_ADDRESS is empty).");
+    throw new Error(
+      "No contract address configured (VITE_CONTRACT_ADDRESS is empty)."
+    );
   }
+
   if (typeof window === "undefined" || !window.ethereum) {
-    throw new Error("MetaMask (or another injected wallet) was not detected.");
+    throw new Error(
+      "MetaMask (or another injected wallet) was not detected."
+    );
   }
 }
 
@@ -26,14 +31,23 @@ function getReadProvider() {
 }
 
 function getReadContract() {
-  return new ethers.Contract(CONTRACT_ADDRESS, ABI, getReadProvider());
+  return new ethers.Contract(
+    CONTRACT_ADDRESS,
+    ABI,
+    getReadProvider()
+  );
 }
 
 async function getSignerContract() {
   assertConfigured();
+
   const provider = new ethers.BrowserProvider(window.ethereum);
   const signer = await provider.getSigner();
-  return { contract: new ethers.Contract(CONTRACT_ADDRESS, ABI, signer), signer };
+
+  return {
+    contract: new ethers.Contract(CONTRACT_ADDRESS, ABI, signer),
+    signer,
+  };
 }
 
 /**
@@ -54,17 +68,27 @@ export async function realCastVote(electionId, candidateOnChainId) {
     contract.isEligible(electionId, address),
     contract.hasVoted(electionId, address),
   ]);
+
   if (status !== "LIVE") {
-    throw new Error(`This election is not currently open for voting (status: ${status}).`);
+    throw new Error(
+      `This election is not currently open for voting (status: ${status}).`
+    );
   }
+
   if (!eligible) {
-    throw new Error("This wallet address is not registered as an eligible voter for this election.");
+    throw new Error(
+      "This wallet address is not registered as an eligible voter for this election."
+    );
   }
+
   if (alreadyVoted) {
-    throw new Error("This wallet address has already voted in this election.");
+    throw new Error(
+      "This wallet address has already voted in this election."
+    );
   }
 
   let tx;
+
   try {
     tx = await contract.castVote(electionId, candidateOnChainId);
   } catch (err) {
@@ -72,14 +96,21 @@ export async function realCastVote(electionId, candidateOnChainId) {
     if (err.code === "ACTION_REJECTED") {
       throw new Error("Transaction rejected in wallet.");
     }
-    throw new Error(extractRevertReason(err) || "Transaction failed to submit.");
+
+    throw new Error(
+      extractRevertReason(err) || "Transaction failed to submit."
+    );
   }
 
   let receipt;
+
   try {
     receipt = await tx.wait();
   } catch (err) {
-    throw new Error(extractRevertReason(err) || "Transaction was submitted but failed to confirm.");
+    throw new Error(
+      extractRevertReason(err) ||
+        "Transaction was submitted but failed to confirm."
+    );
   }
 
   if (!receipt || receipt.status !== 1) {
@@ -87,37 +118,94 @@ export async function realCastVote(electionId, candidateOnChainId) {
   }
 
   const block = await receipt.provider.getBlock(receipt.blockNumber);
+
   return {
     txHash: receipt.hash,
     blockNumber: receipt.blockNumber,
-    timestamp: block ? new Date(block.timestamp * 1000) : new Date(),
+    timestamp: block
+      ? new Date(block.timestamp * 1000)
+      : new Date(),
   };
 }
 
 /** Reads the real, on-chain vote count for a single candidate. */
-export async function realGetCandidateVotes(electionId, candidateOnChainId) {
+export async function realGetCandidateVotes(
+  electionId,
+  candidateOnChainId
+) {
   const contract = getReadContract();
-  const count = await contract.getCandidateVotes(electionId, candidateOnChainId);
+
+  const count = await contract.getCandidateVotes(
+    electionId,
+    candidateOnChainId
+  );
+
   return Number(count);
 }
 
 /** Reads real, on-chain results (names + vote counts) for the whole election. */
 export async function realGetResults(electionId) {
   const contract = getReadContract();
+
   const [names, votes] = await contract.getResults(electionId);
-  return names.map((name, i) => ({ name, votes: Number(votes[i]) }));
+
+  return names.map((name, i) => ({
+    name,
+    votes: Number(votes[i]),
+  }));
 }
 
 /** Reads the real on-chain election status: "UPCOMING" | "LIVE" | "ENDED". */
 export async function realGetElectionStatus(electionId) {
   const contract = getReadContract();
+
   return contract.getElectionStatus(electionId);
 }
 
 /** Checks (read-only) whether a given address has already voted on-chain. */
 export async function realHasVoted(electionId, address) {
   const contract = getReadContract();
+
   return contract.hasVoted(electionId, address);
+}
+
+/**
+ * Recovers the most recent real vote transaction for a wallet.
+ *
+ * This is used when the frontend is refreshed or reopened after a successful
+ * blockchain vote. Instead of relying only on React state, the app searches
+ * the deployed contract's VoteCast events and recovers the actual transaction
+ * hash, block number, and timestamp from Sepolia.
+ */
+export async function realGetLastVote(electionId, voterAddress) {
+  const contract = getReadContract();
+
+  const filter = contract.filters.VoteCast(
+    electionId,
+    null,
+    voterAddress
+  );
+
+  const events = await contract.queryFilter(filter);
+
+  if (!events.length) {
+    return null;
+  }
+
+  // The latest VoteCast event is the most recent vote by this wallet.
+  const event = events[events.length - 1];
+
+  const provider = getReadProvider();
+  const block = await provider.getBlock(event.blockNumber);
+
+  return {
+    txId: event.transactionHash,
+    blockIndex: event.blockNumber,
+    timestamp: block
+      ? new Date(block.timestamp * 1000)
+      : new Date(),
+    mode: "real",
+  };
 }
 
 function extractRevertReason(err) {

@@ -77,6 +77,16 @@ export function VotingProvider({ children }) {
   const [realWalletRecoveryState, setRealWalletRecoveryState] = useState("idle");
   const [realWalletError, setRealWalletError] = useState("");
 
+  // Becomes true once the app has finished its one-time startup check of
+  // whether a live wallet is already connected (via syncConnectedRealWallet,
+  // below). Until then, `wallet` / `walletMode` are just the useState
+  // defaults (null) and must NOT be treated as "definitely not real mode" —
+  // that's an unknown state, not a known-false one. Route guards (e.g.
+  // Confirmation.jsx) key off this flag instead of off wallet/walletMode
+  // directly, so they don't redirect away before the real wallet/vote state
+  // has actually been checked.
+  const [walletBootstrapped, setWalletBootstrapped] = useState(false);
+
   const syncConnectedRealWallet = useCallback(async () => {
     if (typeof window === "undefined" || !window.ethereum) {
       setWallet(null);
@@ -237,13 +247,20 @@ export function VotingProvider({ children }) {
       }
     }
 
-    syncConnectedRealWallet();
+    // Only flip walletBootstrapped once we actually know whether a live
+    // wallet is connected (found, not found, or the check failed) — not
+    // before. Route guards wait on this instead of on the wallet/walletMode
+    // defaults so "haven't checked yet" is never mistaken for "not voted".
+    syncConnectedRealWallet().finally(() => {
+      setWalletBootstrapped(true);
+    });
 
     seedChain().then((c) => {
       setChain(c);
       setLoadingChain(false);
     });
-  }, [pushToast, syncConnectedRealWallet]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushToast]);
 
   // -------------------------------------------------------------------------
   // Reads real, on-chain results.
@@ -494,6 +511,7 @@ export function VotingProvider({ children }) {
     recoverRealVoteTx,
     realWalletRecoveryState,
     realWalletError,
+    walletBootstrapped,
 
     toasts,
     pushToast,

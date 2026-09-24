@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, NETWORK_RPC_URL } from "./config.js";
+import { CONTRACT_ADDRESS, NETWORK_RPC_URL, DEPLOYMENT_START_BLOCK } from "./config.js";
 import ABI from "./VotingABI.json";
 
 // ---------------------------------------------------------------------------
@@ -200,7 +200,15 @@ export async function realGetLastVote(electionId, voterAddress, maxLookbackBlock
   const contract = getReadContract();
   const provider = getReadProvider();
   const latestBlockNumber = await provider.getBlockNumber();
-  const earliestBlockNumber = Math.max(0, latestBlockNumber - maxLookbackBlocks);
+  // No VoteCast event can exist before the contract was deployed, so use
+  // VITE_DEPLOYMENT_START_BLOCK (when configured) as a hard floor. This was
+  // already exported from config.js but never wired in here, so recovery was
+  // scanning up to 100,000 blocks back by default even when the deployment
+  // block was known, multiplying the number of RPC calls for no reason.
+  const earliestBlockNumber = Math.max(
+    DEPLOYMENT_START_BLOCK,
+    latestBlockNumber - maxLookbackBlocks
+  );
   const maxQueryWindow = 10;
   let windowEnd = latestBlockNumber;
 

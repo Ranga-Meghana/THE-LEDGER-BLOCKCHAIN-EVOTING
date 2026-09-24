@@ -6,7 +6,13 @@ async function main() {
   await voting.waitForDeployment();
 
   const address = await voting.getAddress();
+  const deployTx = voting.deploymentTransaction();
+  const deployReceipt = deployTx ? await deployTx.wait() : null;
+  const deployBlockNumber = deployReceipt?.blockNumber ?? null;
   console.log("Voting deployed to:", address);
+  if (deployBlockNumber !== null) {
+    console.log("Deployed at block:", deployBlockNumber);
+  }
 
   // The contract only allows addCandidate() while block.timestamp < startTime,
   // so the election must start comfortably in the future — otherwise the
@@ -49,6 +55,12 @@ async function main() {
 
   console.log("");
   console.log("Copy this address into frontend/.env as VITE_CONTRACT_ADDRESS:", address);
+  if (deployBlockNumber !== null) {
+    console.log(
+      "Copy this block number into frontend/.env as VITE_DEPLOYMENT_START_BLOCK:",
+      deployBlockNumber
+    );
+  }
 }
 
 main().catch((error) => {
